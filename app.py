@@ -86,13 +86,12 @@ Analyze the title carefully and select the most appropriate primary strategy fro
 
 def classify_title(title, api_key):
     """Classify using Google Gemini API"""
+    prompt = create_classification_prompt(
+        title, include_confidence, include_keywords, include_field_suggestions
+    )
+    
     try:
-        model = genai.GenerativeModel('gemini-pro')
-        
-        prompt = create_classification_prompt(
-            title, include_confidence, include_keywords, include_field_suggestions
-        )
-        
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
@@ -101,6 +100,7 @@ def classify_title(title, api_key):
             )
         )
         return response.text
+            
     except Exception as e:
         st.error(f"Gemini API Error: {str(e)}")
         if "API_KEY_INVALID" in str(e):
@@ -309,21 +309,24 @@ with st.expander("📖 How to use"):
        - Save results as JSON or CSV for spreadsheet analysis
     
     **What you'll get for each title**:
-    - Primary strategy classification (from 10 predefined categories)
+    - Primary strategy classification (from 13 predefined categories)
     - 2-3 sentence explanation of why that strategy was chosen
     - Optional: confidence scores, keywords, related fields
     
-    **The 10 Primary Strategies:**
-    1. Machine Learning - Traditional ML algorithms and techniques
-    2. Deep Learning - Neural networks with multiple layers
-    3. Natural Language Processing - Language understanding and processing
-    4. Computer Vision - Visual perception and image analysis
-    5. Theoretical Analysis - Mathematical and theoretical contributions
-    6. Survey/Review - Comprehensive literature reviews
-    7. Experimental Study - Empirical research and evaluations
-    8. Applied Research - Real-world problem solving
-    9. Computational Method - New algorithms and computational approaches
-    10. Data Analysis - Dataset analysis and data processing techniques
+    **The 13 Primary Strategies:**
+1. Advancing Data Science and Computing for Biology
+2. Growing Next-generation Omics and Gene-editing Tools
+3. Developing Hardware to Support and Understand Biology
+4. Accelerating Experimentation by Integrating Technologies
+5. Developing New, Sustainable, Effective Bioproducts
+6. Enabling Optimized Bioconversion of Diverse Feedstocks
+7. Discovering Fundamentals in Photosynthesis and Beyond
+8. Uncovering Molecular Foundations for Predictive Ecology
+9. Building Models to Bridge the Gap Between Lab and Natural Systems
+10. Accelerating Environmental Solutions with Biology
+11. Understanding Biological Processes Vital to Health
+12. Addressing Environmental Impacts on People
+13. Developing Diagnostics, Treatments, and Mitigations for Biopreparedness
     """)
 
 # API key help
