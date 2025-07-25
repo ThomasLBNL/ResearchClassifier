@@ -421,10 +421,19 @@ if st.button("🔍 Classify Title(s)", type="primary"):
             col1, col2 = st.columns(2)
             
             with col1:
+                # Clean results for JSON download - remove any numbering from primary strategies
+                clean_results = []
+                for result in results:
+                    clean_result = result.copy()
+                    # Clean the primary strategy to remove any numbering
+                    primary_strategy = clean_result.get('primary_strategy', '')
+                    clean_result['primary_strategy'] = re.sub(r'^\d+[\.\-\s]*', '', primary_strategy).strip()
+                    clean_results.append(clean_result)
+                
                 # JSON download
                 st.download_button(
                     label="📥 Download Results (JSON)",
-                    data=json.dumps(results, indent=2),
+                    data=json.dumps(clean_results, indent=2),
                     file_name=f"classification_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                     mime="application/json"
                 )
@@ -433,9 +442,14 @@ if st.button("🔍 Classify Title(s)", type="primary"):
                 # CSV download
                 csv_data = []
                 for result in results:
+                    # Clean the primary strategy to remove any numbering
+                    primary_strategy = result.get('primary_strategy', '')
+                    # Remove any leading numbers and dots/dashes (e.g., "1. Strategy Name" -> "Strategy Name")
+                    primary_strategy = re.sub(r'^\d+[\.\-\s]*', '', primary_strategy).strip()
+                    
                     row = {
                         'title': result.get('title', ''),
-                        'primary_strategy': result.get('primary_strategy', ''),
+                        'primary_strategy': primary_strategy,
                         'strategy_description': result.get('strategy_description', ''),
                     }
                     if 'confidence_score' in result:
