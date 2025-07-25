@@ -298,13 +298,19 @@ if 'results_history' not in st.session_state:
     st.session_state.results_history = []
 
 # Main interface
-st.header("📝 Enter Research Paper Titles")
-st.markdown("Enter one or more research paper titles, each on a separate line")
+st.header("📝 Enter Research Paper Title")
 
-# Title input
-title_input = st.text_area(
-    "Research Paper Titles (one per line):",
-    height=200,
+# Single title input
+title_input = st.text_input(
+    "Research Paper Title:",
+    placeholder="e.g., 'Deep Learning for Medical Image Segmentation: A Comprehensive Survey'"
+)
+
+# Batch input option
+st.subheader("📋 Or enter multiple titles")
+batch_input = st.text_area(
+    "Enter multiple titles (separate each title with Enter):",
+    height=150,
     placeholder="""Deep Learning for Medical Image Segmentation: A Comprehensive Survey
 CRISPR-Cas9 Gene Editing for Cancer Immunotherapy
 Machine Learning Approaches for Protein Structure Prediction
@@ -316,7 +322,7 @@ if st.button("🔍 Classify Title(s)", type="primary"):
     if not api_key:
         st.error("Please enter your Google Gemini API key in the sidebar")
         st.info("Get your free API key from: https://makersuite.google.com/app/apikey")
-            elif not title_input and not batch_input:
+    elif not title_input and not batch_input:
         st.error("Please enter at least one research paper title")
     else:
         # Determine which titles to process
