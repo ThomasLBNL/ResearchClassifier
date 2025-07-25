@@ -37,7 +37,7 @@ include_keywords = st.sidebar.checkbox("Extract key terms", value=True)
 include_field_suggestions = st.sidebar.checkbox("Suggest related fields", value=False)
 
 def create_classification_prompt(title, include_confidence, include_keywords, include_field_suggestions):
-    """Create the classification prompt for Gemini based on title only"""
+    """Create the classification prompt for Gemini based on single title"""
     
     optional_fields = []
     if include_confidence:
@@ -84,8 +84,73 @@ Analyze the title carefully and select the most appropriate primary strategy fro
     
     return prompt
 
-def classify_title(title, api_key):
-    """Classify using Google Gemini API"""
+def create_batch_classification_prompt(titles, include_confidence, include_keywords, include_field_suggestions):
+    """Create the classification prompt for multiple titles in one request"""
+    
+    optional_fields = []
+    if include_confidence:
+        optional_fields.append('"confidence_score": "number between 1-10"')
+    if include_keywords:
+        optional_fields.append('"keywords": ["array", "of", "key", "technical", "terms", "from", "title"]')
+    if include_field_suggestions:
+        optional_fields.append('"related_fields": ["array", "of", "related", "research", "areas"]')
+    
+    optional_fields_str = ",\n        ".join(optional_fields)
+    if optional_fields_str:
+        optional_fields_str = ",\n        " + optional_fields_str
+    
+    # Create numbered list of titles for the prompt
+    titles_list = ""
+    for i, title in enumerate(titles, 1):
+        titles_list += f"{i}. \"{title}\"\n"
+    
+    prompt = f"""
+You are an expert research paper classifier. Based ONLY on the research paper titles provided, classify each research using the predefined primary strategies below.
+
+PRIMARY STRATEGIES (choose the most appropriate one for each title):
+
+1. Advancing Data Science and Computing for Biology - Develop AI/ML methods and improve data management systems to predict biological functions and enable multimodal data analysis across scales, while ensuring ethical AI standards and data security.
+2. Growing Next-generation Omics and Gene-editing Tools - Develop and apply advanced molecular profiling technologies including next-generation sequencing platforms, high-throughput metabolomics pipelines, and precision gene-editing systems. Focus on creating new analytical methods, laboratory techniques, computational frameworks, and bioinformatics workflows for processing multi-omics data to characterize biological systems at unprecedented resolution and scale. This category emphasizes technology development and methodological advancement rather than applying existing genomic techniques to study specific organisms, ecosystems, or ecological questions. It includes creating new tools, workflows, and analytical capabilities, not genome sequencing projects, taxonomic studies, or microbial characterization using standard methods.
+3. Developing Hardware to Support and Understand Biology - Create advanced bioreactors, growth chambers, sensors, and imaging systems to measure biological phenomena at relevant scales, including quantum sensing and transportable field systems.
+4. Accelerating Experimentation by Integrating Technologies - Build integrated, automated laboratory systems moving toward self-driving labs that seamlessly combine data collection, robotics, and AI to accelerate biological discovery.
+5. Developing New, Sustainable, Effective Bioproducts - Identify and engineer biological pathways to create renewable alternatives to petroleum-based materials, including polymers, chemicals, fuels, and coatings with improved properties.
+6. Enabling Optimized Bioconversion of Diverse Feedstocks - Design and engineer microbial systems, enzyme pathways, and bioprocessing technologies to convert renewable and waste materials into target products. Emphasize optimization of conversion efficiency, pathway engineering, and bioprocess scale-up for transforming lignocellulosic biomass, organic waste streams, and non-food feedstocks into fuels, chemicals, and materials.
+7. Discovering Fundamentals in Photosynthesis and Beyond - Understand and improve natural photosynthetic processes and develop artificial photosynthesis systems to directly convert sunlight into fuels and chemicals.
+8. Uncovering Molecular Foundations for Predictive Ecology - Investigate fundamental molecular mechanisms that drive ecological processes and community dynamics in natural environments using molecular techniques to understand biological interactions. Focus on applying genomic, transcriptomic, and other molecular approaches to study species interactions, ecosystem function, environmental responses, and ecological relationships through controlled experimentation and molecular characterization of ecological phenomena. This category includes genome sequencing of environmental organisms, microbial ecology studies, taxonomic characterization, strain isolation, and molecular analysis of ecological communities rather than developing new analytical technologies or computational methods.
+9. Building Models to Bridge the Gap Between Lab and Natural Systems - Construct mathematical, computational, and theoretical frameworks that translate mechanistic understanding from controlled laboratory conditions to complex natural environments. Develop multi-scale modeling approaches, parameter estimation methods, and validation strategies that account for environmental variability and system complexity.
+10. Accelerating Environmental Solutions with Biology - Apply biological approaches to address environmental challenges like carbon sequestration, ecosystem resilience, and nutrient cycling from bench to field scale.
+11. Understanding Biological Processes Vital to Health - Study fundamental human biology to establish health baselines, identify disease biomarkers, and understand genetic variations that affect disease susceptibility and treatment response.
+12. Addressing Environmental Impacts on People - Investigate how environmental factors like air pollution, radiation, heat, and chemical exposures affect human health and the human microbiome.
+13. Developing Diagnostics, Treatments, and Mitigations for Biopreparedness - Engineer biosensing platforms, therapeutic delivery systems, and countermeasure technologies for detecting and responding to biological threats. Could also be to secure a more stable supply chain for crucial biological products like crops and drugs. Focus on developing portable diagnostic devices, novel antimicrobial strategies, and preventive biotechnologies that can be rapidly deployed for public health protection and biosecurity applications. 
+
+Research Paper Titles to Classify:
+{titles_list}
+
+Please return your response as a valid JSON array where each object corresponds to the title with the same number, in order. Use this structure:
+
+[
+    {{
+        "title_number": 1,
+        "title": "exact title text",
+        "primary_strategy": "string (must be exactly one of the 13 strategies listed above)",
+        "strategy_description": "string (2-3 sentence description explaining why this strategy was chosen for this title)"{optional_fields_str}
+    }},
+    {{
+        "title_number": 2,
+        "title": "exact title text",
+        "primary_strategy": "string (must be exactly one of the 13 strategies listed above)",
+        "strategy_description": "string (2-3 sentence description explaining why this strategy was chosen for this title)"{optional_fields_str}
+    }}
+    // ... continue for all titles
+]
+
+Analyze each title carefully and select the most appropriate primary strategy from the 13 options above. Provide only the JSON array response, no additional text.
+"""
+    
+    return prompt
+
+def classify_single_title(title, api_key):
+    """Classify a single title using Google Gemini API"""
     prompt = create_classification_prompt(
         title, include_confidence, include_keywords, include_field_suggestions
     )
@@ -107,6 +172,29 @@ def classify_title(title, api_key):
             st.error("Please check your API key. Get one from: https://makersuite.google.com/app/apikey")
         return None
 
+def classify_multiple_titles(titles, api_key):
+    """Classify multiple titles using Google Gemini API in a single request"""
+    prompt = create_batch_classification_prompt(
+        titles, include_confidence, include_keywords, include_field_suggestions
+    )
+    
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1,
+                max_output_tokens=2000,  # Increased for multiple titles
+            )
+        )
+        return response.text
+            
+    except Exception as e:
+        st.error(f"Gemini API Error: {str(e)}")
+        if "API_KEY_INVALID" in str(e):
+            st.error("Please check your API key. Get one from: https://makersuite.google.com/app/apikey")
+        return None
+
 def parse_json_response(response_text):
     """Parse the JSON response from Gemini"""
     try:
@@ -118,7 +206,7 @@ def parse_json_response(response_text):
         response_text = re.sub(r'```\n?', '', response_text)
         
         # Try to find JSON in the response
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        json_match = re.search(r'[\{\[].*[\}\]]', response_text, re.DOTALL)
         if json_match:
             json_str = json_match.group()
             return json.loads(json_str)
@@ -203,84 +291,103 @@ if st.button("🔍 Classify Title(s)", type="primary"):
         # Remove duplicates while preserving order
         titles_to_process = list(dict.fromkeys(titles_to_process))
         
-        with st.spinner(f"Analyzing {len(titles_to_process)} title(s) with Google Gemini..."):
-            results = []
-            
-            for i, title in enumerate(titles_to_process):
-                st.write(f"Processing {i+1}/{len(titles_to_process)}: {title[:50]}...")
-                
-                response = classify_title(title, api_key)
+        results = []
+        
+        if len(titles_to_process) == 1:
+            # Single title processing
+            with st.spinner("Analyzing title with Google Gemini..."):
+                response = classify_single_title(titles_to_process[0], api_key)
                 
                 if response:
                     classification_result = parse_json_response(response)
                     if classification_result:
                         # Add timestamp and title to result
-                        classification_result['title'] = title
+                        classification_result['title'] = titles_to_process[0]
                         classification_result['timestamp'] = datetime.now().isoformat()
                         results.append(classification_result)
                         
                         # Add to session history
                         st.session_state.results_history.append(classification_result)
+        else:
+            # Multiple titles processing - send all in one request
+            with st.spinner(f"Analyzing {len(titles_to_process)} titles with Google Gemini in batch..."):
+                response = classify_multiple_titles(titles_to_process, api_key)
+                
+                if response:
+                    batch_results = parse_json_response(response)
+                    if batch_results and isinstance(batch_results, list):
+                        for result in batch_results:
+                            if isinstance(result, dict):
+                                # Add timestamp to each result
+                                result['timestamp'] = datetime.now().isoformat()
+                                results.append(result)
+                                
+                                # Add to session history
+                                st.session_state.results_history.append(result)
+                    else:
+                        st.error("Failed to parse batch results. Please try again or process titles individually.")
+        
+        if results:
+            st.success(f"✅ Successfully classified {len(results)} title(s)!")
             
-            if results:
-                st.success(f"✅ Successfully classified {len(results)} title(s)!")
-                
-                # Display results
+            # Display results
+            for result in results:
+                with st.container():
+                    title_to_display = result.get('title', 'Unknown Title')
+                    display_results(title_to_display, result)
+                    st.markdown("---")
+            
+            # Download options
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # JSON download
+                st.download_button(
+                    label="📥 Download Results (JSON)",
+                    data=json.dumps(results, indent=2),
+                    file_name=f"classification_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+            
+            with col2:
+                # CSV download
+                csv_data = []
                 for result in results:
-                    with st.container():
-                        display_results(result['title'], result)
-                        st.markdown("---")
+                    row = {
+                        'title': result.get('title', ''),
+                        'primary_strategy': result.get('primary_strategy', ''),
+                        'strategy_description': result.get('strategy_description', ''),
+                    }
+                    if 'confidence_score' in result:
+                        row['confidence_score'] = result['confidence_score']
+                    if 'keywords' in result:
+                        row['keywords'] = ', '.join(result['keywords']) if isinstance(result['keywords'], list) else str(result['keywords'])
+                    if 'related_fields' in result:
+                        row['related_fields'] = ', '.join(result['related_fields']) if isinstance(result['related_fields'], list) else str(result['related_fields'])
+                    csv_data.append(row)
                 
-                # Download options
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # JSON download
-                    st.download_button(
-                        label="📥 Download Results (JSON)",
-                        data=json.dumps(results, indent=2),
-                        file_name=f"classification_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                        mime="application/json"
-                    )
-                
-                with col2:
-                    # CSV download
-                    csv_data = []
-                    for result in results:
-                        row = {
-                            'title': result.get('title', ''),
-                            'primary_strategy': result.get('primary_strategy', ''),
-                            'strategy_description': result.get('strategy_description', ''),
-                        }
-                        if 'confidence_score' in result:
-                            row['confidence_score'] = result['confidence_score']
-                        if 'keywords' in result:
-                            row['keywords'] = ', '.join(result['keywords'])
-                        if 'related_fields' in result:
-                            row['related_fields'] = ', '.join(result['related_fields'])
-                        csv_data.append(row)
+                # Convert to CSV string
+                import io
+                output = io.StringIO()
+                if csv_data:
+                    writer = csv.DictWriter(output, fieldnames=csv_data[0].keys())
+                    writer.writeheader()
+                    writer.writerows(csv_data)
+                    csv_string = output.getvalue()
                     
-                    # Convert to CSV string
-                    import io
-                    output = io.StringIO()
-                    if csv_data:
-                        writer = csv.DictWriter(output, fieldnames=csv_data[0].keys())
-                        writer.writeheader()
-                        writer.writerows(csv_data)
-                        csv_string = output.getvalue()
-                        
-                        st.download_button(
-                            label="📊 Download Results (CSV)",
-                            data=csv_string,
-                            file_name=f"classification_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv"
-                        )
+                    st.download_button(
+                        label="📊 Download Results (CSV)",
+                        data=csv_string,
+                        file_name=f"classification_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
 
 # Show history if available
 if st.session_state.results_history:
     with st.expander(f"📚 Classification History ({len(st.session_state.results_history)} titles)"):
         for result in reversed(st.session_state.results_history[-10:]):  # Show last 10
-            st.write(f"**{result['title']}** → {result.get('primary_strategy', 'Unknown')}")
+            title_display = result.get('title', 'Unknown Title')
+            st.write(f"**{title_display}** → {result.get('primary_strategy', 'Unknown')}")
         
         if st.button("🗑️ Clear History"):
             st.session_state.results_history = []
@@ -297,13 +404,15 @@ with st.expander("📖 How to use"):
        
     2. **Enter title(s)**: 
        - Single title: Use the text input above
-       - Multiple titles: Use the text area (one title per line)
+       - Multiple titles: Use the text area (one title per line) - **Now processes all titles in one efficient batch request!**
        
     3. **Configure options**: 
        - Choose what additional information you want
        
     4. **Classify**: 
        - Click "Classify Title(s)" and wait for results
+       - Single titles are processed individually
+       - Multiple titles are processed together in one batch for faster results
        
     5. **Download**: 
        - Save results as JSON or CSV for spreadsheet analysis
