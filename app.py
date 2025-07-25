@@ -184,7 +184,8 @@ def classify_multiple_titles(titles, api_key):
             prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,
-                max_output_tokens=2000,  # Increased for multiple titles
+                max_output_tokens=4000,  # Increased for multiple titles
+                candidate_count=1,
             )
         )
         return response.text
@@ -195,8 +196,29 @@ def classify_multiple_titles(titles, api_key):
             st.error("Please check your API key. Get one from: https://makersuite.google.com/app/apikey")
         return None
 
-def parse_json_response(response_text):
-    """Parse the JSON response from Gemini"""
+def fallback_individual_processing(titles, api_key):
+    """Fallback to process titles individually if batch processing fails"""
+    st.warning("Batch processing failed. Falling back to individual processing...")
+    results = []
+    
+    progress_bar = st.progress(0)
+    for i, title in enumerate(titles):
+        st.write(f"Processing {i+1}/{len(titles)}: {title[:50]}...")
+        
+        response = classify_single_title(title, api_key)
+        if response:
+            classification_result = parse_json_response(response, is_batch=False)
+            if classification_result:
+                classification_result['title'] = title
+                classification_result['timestamp'] = datetime.now().isoformat()
+                results.append(classification_result)
+        
+        progress_bar.progress((i + 1) / len(titles))
+    
+    return results
+
+def parse_json_response(response_text, is_batch=False):
+    """Parse the JSON response from Gemini with improved error handling"""
     try:
         # Clean the response text
         response_text = response_text.strip()
@@ -204,14 +226,34 @@ def parse_json_response(response_text):
         # Remove any markdown formatting
         response_text = re.sub(r'```json\n?', '', response_text)
         response_text = re.sub(r'```\n?', '', response_text)
+        response_text = re.sub(r'```', '', response_text)
+        
+        # Additional cleaning for common issues
+        response_text = response_text.replace('\n', ' ')
+        response_text = re.sub(r'\s+', ' ', response_text)
         
         # Try to find JSON in the response
-        json_match = re.search(r'[\{\[].*[\}\]]', response_text, re.DOTALL)
+        if is_batch:
+            # For batch responses, look for array structure
+            json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+        else:
+            # For single responses, look for object structure
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            
         if json_match:
             json_str = json_match.group()
+            # Additional cleaning of the JSON string
+            json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas before }
+            json_str = re.sub(r',\s*]', ']', json_str)  # Remove trailing commas before ]
             return json.loads(json_str)
         else:
             return json.loads(response_text)
+            
+    except json.JSONDecodeError as e:
+        st.error(f"JSON parsing error: {str(e)}")
+        st.error("Raw response preview:")
+        st.code(response_text[:500] + "..." if len(response_text) > 500 else response_text)
+        return None
     except Exception as e:
         st.error(f"Error parsing AI response: {str(e)}")
         return None
@@ -256,20 +298,17 @@ if 'results_history' not in st.session_state:
     st.session_state.results_history = []
 
 # Main interface
-st.header("📝 Enter Research Paper Title")
+st.header("📝 Enter Research Paper Titles")
+st.markdown("Enter one or more research paper titles, each on a separate line")
 
-# Single title input
-title_input = st.text_input(
-    "Research Paper Title:",
-    placeholder="e.g., 'Deep Learning for Medical Image Segmentation: A Comprehensive Survey'"
-)
-
-# Batch input option
-st.subheader("📋 Or enter multiple titles")
-batch_input = st.text_area(
-    "Enter multiple titles (one per line):",
-    height=150,
-    placeholder="Enter multiple research paper titles, one per line..."
+# Title input
+title_input = st.text_area(
+    "Research Paper Titles (one per line):",
+    height=200,
+    placeholder="""Deep Learning for Medical Image Segmentation: A Comprehensive Survey
+CRISPR-Cas9 Gene Editing for Cancer Immunotherapy
+Machine Learning Approaches for Protein Structure Prediction
+Sustainable Biofuel Production from Algae Biomass"""
 )
 
 # Process button
@@ -277,7 +316,7 @@ if st.button("🔍 Classify Title(s)", type="primary"):
     if not api_key:
         st.error("Please enter your Google Gemini API key in the sidebar")
         st.info("Get your free API key from: https://makersuite.google.com/app/apikey")
-    elif not title_input and not batch_input:
+            elif not title_input and not batch_input:
         st.error("Please enter at least one research paper title")
     else:
         # Determine which titles to process
@@ -299,7 +338,7 @@ if st.button("🔍 Classify Title(s)", type="primary"):
                 response = classify_single_title(titles_to_process[0], api_key)
                 
                 if response:
-                    classification_result = parse_json_response(response)
+                    classification_result = parse_json_response(response, is_batch=False)
                     if classification_result:
                         # Add timestamp and title to result
                         classification_result['title'] = titles_to_process[0]
@@ -311,21 +350,56 @@ if st.button("🔍 Classify Title(s)", type="primary"):
         else:
             # Multiple titles processing - send all in one request
             with st.spinner(f"Analyzing {len(titles_to_process)} titles with Google Gemini in batch..."):
-                response = classify_multiple_titles(titles_to_process, api_key)
-                
-                if response:
-                    batch_results = parse_json_response(response)
-                    if batch_results and isinstance(batch_results, list):
-                        for result in batch_results:
-                            if isinstance(result, dict):
-                                # Add timestamp to each result
-                                result['timestamp'] = datetime.now().isoformat()
-                                results.append(result)
-                                
-                                # Add to session history
+                # Limit batch size to avoid token limits
+                max_batch_size = 10
+                if len(titles_to_process) > max_batch_size:
+                    st.warning(f"Processing {len(titles_to_process)} titles in batches of {max_batch_size}...")
+                    
+                    # Process in chunks
+                    for i in range(0, len(titles_to_process), max_batch_size):
+                        batch = titles_to_process[i:i + max_batch_size]
+                        st.write(f"Processing batch {i//max_batch_size + 1}...")
+                        
+                        response = classify_multiple_titles(batch, api_key)
+                        if response:
+                            batch_results = parse_json_response(response, is_batch=True)
+                            if batch_results and isinstance(batch_results, list):
+                                for result in batch_results:
+                                    if isinstance(result, dict):
+                                        result['timestamp'] = datetime.now().isoformat()
+                                        results.append(result)
+                                        st.session_state.results_history.append(result)
+                            else:
+                                # Fallback to individual processing for this batch
+                                fallback_results = fallback_individual_processing(batch, api_key)
+                                results.extend(fallback_results)
+                                for result in fallback_results:
+                                    st.session_state.results_history.append(result)
+                else:
+                    # Process all at once if under limit
+                    response = classify_multiple_titles(titles_to_process, api_key)
+                    
+                    if response:
+                        batch_results = parse_json_response(response, is_batch=True)
+                        if batch_results and isinstance(batch_results, list):
+                            for result in batch_results:
+                                if isinstance(result, dict):
+                                    # Ensure title is included
+                                    if 'title' not in result and 'title_number' in result:
+                                        title_idx = result['title_number'] - 1
+                                        if 0 <= title_idx < len(titles_to_process):
+                                            result['title'] = titles_to_process[title_idx]
+                                    
+                                    result['timestamp'] = datetime.now().isoformat()
+                                    results.append(result)
+                                    st.session_state.results_history.append(result)
+                        else:
+                            # Fallback to individual processing
+                            st.warning("Batch processing returned unexpected format. Using individual processing...")
+                            fallback_results = fallback_individual_processing(titles_to_process, api_key)
+                            results.extend(fallback_results)
+                            for result in fallback_results:
                                 st.session_state.results_history.append(result)
-                    else:
-                        st.error("Failed to parse batch results. Please try again or process titles individually.")
         
         if results:
             st.success(f"✅ Successfully classified {len(results)} title(s)!")
@@ -404,7 +478,7 @@ with st.expander("📖 How to use"):
        
     2. **Enter title(s)**: 
        - Single title: Use the text input above
-       - Multiple titles: Use the text area (one title per line) - **Now processes all titles in one efficient batch request!**
+       - Multiple titles: Use the text area and separate each title with Enter (press Enter after each title)
        
     3. **Configure options**: 
        - Choose what additional information you want
