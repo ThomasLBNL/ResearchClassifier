@@ -317,7 +317,7 @@ if st.button("🔍 Classify Title(s)", type="primary"):
         st.error("Please enter your Google Gemini API key in the sidebar")
         st.info("Get your free API key from: https://makersuite.google.com/app/apikey")
             elif not title_input and not batch_input:
-            st.error("Please enter at least one research paper title")
+        st.error("Please enter at least one research paper title")
     else:
         # Determine which titles to process
         titles_to_process = []
